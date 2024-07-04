@@ -1,12 +1,15 @@
+from dotenv import load_dotenv
 from src.infra.sql.sqlcon import sqlcon
 from src.infra.log.customLog import customLog
 from threading import current_thread
+import os
 import json
 import requests
 import time
 import concurrent.futures as futures
 
 def memphis_finance_migration():
+    load_dotenv()
     log = customLog("Migracao_Receber")
     log.setLog(messege=f"Inicio da migração do financeiro.", print_terminal=True)
     inicio = time.time()
@@ -84,7 +87,7 @@ def get_query(branch, part_id="", theads=1):
     return query
 
 def send_protheus(df, idThead, log):
-    url = 'http://172.22.201.44:5222/rest/integracoes/financeiro/receber'
+    url = f'{os.getenv('URL_ENDPOINT')}/integracoes/financeiro/receber'
     for index, row in df.iterrows():
         request = {
             "data": {
