@@ -15,18 +15,11 @@ def memphis_finance_migration():
     inicio = time.time()
     connection = sqlcon()
     branch = 5 # 5 - CD FORTALEZA CE
+    banc_cod = "341" #input("Informe o Código do banco: ") #"341"
+    we_number = "4138165" #input("Informe o Nosso Número: ")#"4138165"
     max_threads = 10
-    query = get_query(branch=branch, part_id="", theads=max_threads)
+    query = get_query(branch=branch, part_id="", banc_cod=banc_cod, we_number=we_number, theads=max_threads)
     df = connection.execute_query(query=query)
-    # custom_threads = []
-    # for index in range(max_threads):
-    #     df_thread = df[df.THREAD == index]
-    #     if len(df_thread) > 0:
-    #         custom_thread = threading.Thread(target=send_protheus, args=(df_thread, index, log))
-    #         custom_thread.start()
-    #         custom_threads.append(custom_thread)
-    # for thread in custom_threads:
-    #      thread.join()
     with futures.ThreadPoolExecutor() as executor:
         custom_futures = []
         for index in range(max_threads):
@@ -37,7 +30,7 @@ def memphis_finance_migration():
             log.setLog(messege=future.result(), print_terminal=True)
     log.setLog(messege=f"Processo Finalizado com sucesso! tempo: {(time.time() - inicio)/60}", print_terminal=True)
 
-def get_query(branch, part_id="", theads=1):
+def get_query(branch, part_id="", banc_cod="", we_number="", theads=1):
     query = f"""
     SELECT TOP 500 VW_FI_MOVIMENTO.VW_FI_MOVIMENTO_NUMERODOCUMENTOCONTA % {theads} [THREAD]
     ,FILIAL.EP_FILIAL_CODIGO_PROTHEUS [E1_FILIAL]
@@ -52,7 +45,7 @@ def get_query(branch, part_id="", theads=1):
 	,CONVERT(VARCHAR(8), VW_FI_MOVIMENTO.VW_FI_MOVIMENTO_DATA_VENCIMENTO, 112) [E1_VENCTO]
 	,CONVERT(VARCHAR(8), VW_FI_MOVIMENTO.VW_FI_MOVIMENTO_DATA_VENCIMENTO, 112) [E1_VENCREA]
 	,VW_FI_MOVIMENTO.VW_FI_MOVIMENTO_VALOR [E1_VALOR]
-    ,VW_FI_MOVIMENTO.VW_FI_MOVIMENTO_NUMERO_DOCUMENTO_PARCELA [E1_IDCNAB]
+    ,FORMAT(CONVERT(BIGINT, BOLETO.BC_BOLETO_NOSSONUMERO), '00000000') [E1_IDCNAB]
 	,(SELECT CASE TIPOSJUROSDESCONTOS.FI_TIPOSJUROSDESCONTOS_EhJuros
 			 WHEN 1 THEN '000003' 
 			 WHEN 0 THEN '000004'
@@ -79,9 +72,14 @@ def get_query(branch, part_id="", theads=1):
         ON BOLETO.PK_BC_BOLETO_ID = BOLETOPARCELA.FK_BC_BOLETOPARCELA_BC_BOLETO_ID
     WHERE 1=1
     AND (VW_FI_MOVIMENTO_EHPAGAR = 0)
-    AND VW_FI_MOVIMENTO.VW_FI_MOVIMENTO_FILIAL_ID = {branch}
     AND (VW_FI_MOVIMENTO.VW_FI_MOVIMENTO_STATUS = 'PC' OR VW_FI_MOVIMENTO.VW_FI_MOVIMENTO_STATUS = 'PD')
     """
+    if branch:
+        query += f" AND VW_FI_MOVIMENTO.VW_FI_MOVIMENTO_FILIAL_ID = {branch} "
+    if banc_cod:
+        query += f" AND BOLETO.BC_BOLETO_BANCOCODIGO = {banc_cod} "
+    if we_number:
+        query += f" AND BOLETO.BC_BOLETO_NOSSONUMERO = {we_number} "
     if part_id:
         query += f" AND VW_FI_MOVIMENTO.VW_FI_MOVIMENTO_PARCELA_ID = {part_id} "
     return query
@@ -115,13 +113,13 @@ def send_protheus(df, idThead, log):
         if row["FKD"] != None:
             request["data"]["FKD"] = json.loads(row["FKD"])
         log.setLog(f"Enviando Titulo Numero:{row["E1_NUM"]}, Parcela:{row["E1_PARCELA"]}, Valor: {row["E1_VALOR"]}, Thead: {current_thread().getName()}")
-        # response = requests.post(url=url, data=json.dumps(request))
-        # response_body = json.loads(response.content)
-        # if response.ok:
-        #     log.setLog("Financiero inserido!")
-        # else:
-        #     log.setError("Erro na requsição: ")
-        #     log.setError(response_body["message"])
+        response = requests.post(url=url, data=json.dumps(request))
+        response_body = json.loads(response.content)
+        if response.ok:
+            log.setLog("Financiero inserido!")
+        else:
+            log.setError("Erro na requsição: ")
+            log.setError(response_body["message"])
     return f"Thread {current_thread().name} Finalizou!"
 
 if __name__ == "__main__":
