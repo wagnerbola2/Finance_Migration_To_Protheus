@@ -7,6 +7,7 @@ import json
 import requests
 import time
 import concurrent.futures as futures
+import uuid
 
 def memphis_finance_migration():
     load_dotenv()
@@ -14,9 +15,9 @@ def memphis_finance_migration():
     log.setLog(messege=f"Inicio da migração do financeiro.", print_terminal=True)
     inicio = time.time()
     connection = sqlcon()
-    branch = 5 # 5 - CD FORTALEZA CE
-    banc_cod = "341" #input("Informe o Código do banco: ") #"341"
-    we_number = "4138165" #input("Informe o Nosso Número: ")#"4138165"
+    branch = 13 # 5 - CD FORTALEZA CE
+    banc_cod = "" #"341" #input("Informe o Código do banco: ") #"341"
+    we_number = "" #"4138165" #input("Informe o Nosso Número: ")#"4138165"
     max_threads = 10
     query = get_query(branch=branch, part_id="", banc_cod=banc_cod, we_number=we_number, theads=max_threads)
     df = connection.execute_query(query=query)
@@ -25,14 +26,14 @@ def memphis_finance_migration():
         for index in range(max_threads):
             df_thread = df[df.THREAD == index]
             if len(df_thread) > 0:
-                custom_futures.append(executor.submit(send_protheus, df=df_thread, idThead=index, log=log))
+                custom_futures.append(executor.submit(send_protheus, df=df_thread, log=log))
         for future in futures.as_completed(custom_futures):
             log.setLog(messege=future.result(), print_terminal=True)
     log.setLog(messege=f"Processo Finalizado com sucesso! tempo: {(time.time() - inicio)/60}", print_terminal=True)
 
 def get_query(branch, part_id="", banc_cod="", we_number="", theads=1):
     query = f"""
-    SELECT TOP 500 VW_FI_MOVIMENTO.VW_FI_MOVIMENTO_NUMERODOCUMENTOCONTA % {theads} [THREAD]
+    SELECT VW_FI_MOVIMENTO.VW_FI_MOVIMENTO_NUMERODOCUMENTOCONTA % {theads} [THREAD]
     ,FILIAL.EP_FILIAL_CODIGO_PROTHEUS [E1_FILIAL]
 	,LEFT(CLIENTE.GE_CLIENTE_CODIGO_PROTHEUS, 6) [E1_CLIENTE]
 	,RIGHT(CLIENTE.GE_CLIENTE_CODIGO_PROTHEUS, 2) [E1_LOJA]
@@ -84,11 +85,14 @@ def get_query(branch, part_id="", banc_cod="", we_number="", theads=1):
         query += f" AND VW_FI_MOVIMENTO.VW_FI_MOVIMENTO_PARCELA_ID = {part_id} "
     return query
 
-def send_protheus(df, idThead, log):
+def send_protheus(df, log):
+    idThead = current_thread().getName()
     url = f'{os.getenv('URL_ENDPOINT')}/integracoes/financeiro/receber'
     for index, row in df.iterrows():
+        request_id = str(uuid.uuid4())
         request = {
             "data": {
+                "id": request_id,
                 "empresa": "01",
                 "filial": row['E1_FILIAL'],
                 "origem": "Memphis",
@@ -112,15 +116,15 @@ def send_protheus(df, idThead, log):
         } 
         if row["FKD"] != None:
             request["data"]["FKD"] = json.loads(row["FKD"])
-        log.setLog(f"Enviando Titulo Numero:{row["E1_NUM"]}, Parcela:{row["E1_PARCELA"]}, Valor: {row["E1_VALOR"]}, Thead: {current_thread().getName()}")
+        log.setLog(f"Request id: {request_id}, Enviando Titulo Numero:{row["E1_NUM"]}, Parcela:{row["E1_PARCELA"]}, Valor: {row["E1_VALOR"]}, Thead: {idThead}")
         response = requests.post(url=url, data=json.dumps(request))
         response_body = json.loads(response.content)
         if response.ok:
-            log.setLog("Financiero inserido!")
+            log.setLog(f"Request id: {request_id}, Financiero inserido!")
         else:
-            log.setError("Erro na requsição: ")
+            log.setError(f"Request id: {request_id}, Erro na requsição: ")
             log.setError(response_body["message"])
-    return f"Thread {current_thread().name} Finalizou!"
+    return f"Thread {idThead} Finalizou!"
 
 if __name__ == "__main__":
     memphis_finance_migration()
